@@ -1,0 +1,726 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="color-scheme" content="light dark">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.colors.min.css">
+		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=delete" />
+		<title>Galactic Tycoons Planet Finder</title>
+		<style>
+			article .planets-list {
+				display: flex;
+				max-width: 100%;
+				flex-direction: row;
+				flex-wrap: wrap;
+			}
+			article .planets-list > *  {
+				margin: 1rem;
+				flex: fit-content;
+			}
+		</style>
+	</head>
+	<body>
+		<main class="container">
+			<h1>Galactic Tycoons Planet Finder</h1>
+			<article>
+				<header>Search for planet</header>
+				<form class="planet-finder-options" onsubmit="return false;">
+					<label>
+						Maximum distance to planet (<span class="range-value-distance-max-to-point">100</span>ly)
+						<input name="distance-max-to-point" type="range" min="0" value="100" max="100" step="0.1"/>
+					</label>
+					<!-- <label>
+						Maximum distance to
+						<input name="distance-max-to-point" type="number" min="0" step="0.1"/>
+					</label> -->
+					<label>
+						Measure distance from
+						<select name="distance-from-point" aria-label="Measure distance from" class="planet-selection" required>
+							<!-- <option selected value="476-1022">Exchange Station</option>
+							<option value="375-728">Zicigawa 2</option> -->
+						</select>
+					</label>
+					<label>
+						Planet's Tier
+						<select name="show-tiers" aria-label="Select the planet's possible Tier." multiple size="5">
+							<option disabled>
+								Select the planet's possible Tier
+							</option>
+							<!-- <option selected value="1">Tier 1</option>
+							<option selected value="2">Tier 2</option>
+							<option selected value="3">Tier 3</option>
+							<option selected value="4">Tier 4</option> -->
+						</select>
+					</label>
+					<article>
+						<header>Resources</header>
+						<label>
+							Minimum fertility (<span class="range-value-fertility-min">0</span>)
+							<input name="fertility-min" type="range" min="0" value="0" max="100" step="1"/>
+						</label>
+						<div class="resources">
+							<!-- <fieldset role="group">
+								<select name="resource-0" aria-label="Select Resource" required>
+									<option selected disabled value="">Select Resource</option>
+									<option>Iron Ore</option>
+								</select>
+								<input name="resource-0-min" type="number" placeholder="Minimum percentage" min="0" step="1" />
+								<button class="pico-background-red-500"><span class="material-symbols-outlined">delete</span></button>
+							</fieldset> -->
+						</div>
+						<!-- <button class="new-resource pico-background-green-500">New Resource</button> -->
+					</article>
+				</form>
+			</article>
+			<article>
+				<header>Out of <span class="value-total-planets">0</span> planets <span class="value-showing-planets">0</span> qualify and are shown below</header>
+				<div class="planets-list">
+					<article>
+						<header>Reverie 2</header>
+						<table>
+							<thead>
+								<tr>
+									<th scope="col">Tier</th>
+									<th scope="col">Distance</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<th scope="row">4</th>
+									<td>1.2ly</td>
+								</tr>
+							</tbody>
+						<!-- </table>
+						<table> -->
+							<thead>
+								<tr>
+									<th scope="col">Resource</th>
+									<th scope="col">Percentage</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<th scope="row">Fertility</th>
+									<td>63%</td>
+								</tr>
+								<tr>
+									<th scope="row">Water</th>
+									<td>101%</td>
+								</tr>
+							</tbody>
+						</table>
+					</article>
+				</div>
+			</article>
+		</main>
+
+		<script>
+			var center_system = null;
+			var center_planet = null;
+			var original_gamedata = null;
+			var parsed_gamedata = null;
+			var resource_field_counter = 0;
+
+			async function get_json(json) {
+				let json_folder = "galactic_tycoon_api_results";
+				let url = '/'+json_folder+'/'+json+'.json';
+
+				const response = await fetch(url);
+				if(!response.ok) throw new Error(`HTTP error: ${response.status}`);
+				return await response.json();
+			}
+
+			async function get_gamedata() {
+				return await get_json('gamedata')
+			}
+
+			async function parse_gamedata() {
+				let gamedata_json = await get_gamedata();
+				original_gamedata = gamedata_json;
+
+				parsed_gamedata = {
+					materials: {},
+					systems: {},
+					planets: {},
+					tiers: []
+				};
+
+				let highest_fertility_found = 0;
+				let tiers_found = [];
+				let materials_on_planets = {};
+				for(let i = 0; i < gamedata_json.systems.length; i++) {
+					let system = gamedata_json.systems[i];
+					parsed_gamedata.systems[system.id] = system;
+					if(system.planets == null || system.planets.length == 0) continue;
+					for(let j = 0; j < system.planets.length; j++) {
+						let planet = system.planets[j];
+						let planet_id = planet.sId+"-"+planet.id;
+						parsed_gamedata.planets[planet_id] = planet;
+
+						if(!tiers_found.includes(planet.tier)) {
+							tiers_found.push(planet.tier);
+						}
+						// Make exchange station the center planet
+						if(planet.tier == 0) {
+							center_planet = planet_id;
+							center_system = system.id;
+						}
+
+						if(highest_fertility_found < planet.fert) {
+							highest_fertility_found = planet.fert;
+						}
+
+						for(let k = 0; k < planet.mats.length; k++) {
+							let mat = planet.mats[k];
+							if(materials_on_planets[mat.id] == undefined) {
+								materials_on_planets[mat.id] = mat.ab;
+							} else if (materials_on_planets[mat.id] < mat.ab) {
+								materials_on_planets[mat.id] = mat.ab;
+							}
+						}
+					}
+				}
+
+				// Parse tiers, remove tier 0 since it is reserverd for exchange station
+				tiers_found.sort();
+				if(tiers_found[0] == 0) {
+					tiers_found.shift()
+				}
+				parsed_gamedata.tiers = tiers_found;
+
+				parsed_gamedata.max_fertility = highest_fertility_found;
+
+				// Parse materials found on a planet
+				for(let i = 0; i < gamedata_json.materials.length; i++) {
+					let material = gamedata_json.materials[i];
+					if(materials_on_planets[material.id] == undefined) continue;
+
+					parsed_gamedata.materials[material.id] = material;
+					parsed_gamedata.materials[material.id].max_abs = materials_on_planets[material.id];
+				}
+			}
+
+			function getDistance(xy1, xy2) {
+				const dx = xy1.x - xy2.x;
+				const dy = xy1.y - xy2.y;
+				return Math.sqrt(dx * dx + dy * dy);
+			}
+
+			function get_systems_in_order_of_distance(center_system_obj) {
+				let ordered_systems = [];
+				let systems = Object.values(parsed_gamedata.systems);
+				for(let i = 0; i < systems.length; i++) {
+					let system = systems[i];
+
+					ordered_systems.push({
+						id: system.id,
+						distance: getDistance(center_system_obj, system)
+					});
+				}
+
+				ordered_systems.sort((a, b) => {
+					return a.distance - b.distance
+				})
+
+				return ordered_systems;
+			}
+
+			function get_planets_in_order_of_distance(center_planet_obj, planets=undefined) {
+				let ordered_planets = [];
+				if(planets == undefined) planets = Object.values(parsed_gamedata.planets);
+				for(let i = 0; i < planets.length; i++) {
+					let planet = planets[i];
+
+					ordered_planets.push({
+						id: planet.id,
+						sId: planet.sId,
+						distance: getDistance(center_planet_obj, planet)
+					});
+				}
+
+				ordered_planets.sort((a, b) => {
+					return a.distance - b.distance
+				})
+
+				return ordered_planets;
+			}
+
+			function xy_distance_to_ly(xy_distance) {
+				return Math.ceil(xy_distance / 4.32210082663)/10; // Calculated based on planet next to exchange point
+			}
+
+			function ly_distance_to_xy(ly_distance) {
+				return ly_distance * 43.2210082663; // Calculated based on same as xy_distance_to_ly 
+			}
+
+			function create_resource_field(resource_change_fn=undefined, disable_delete=true) {
+				let fieldset_elm = document.createElement('fieldset')
+				fieldset_elm.setAttribute('role', 'group');
+				fieldset_elm.classList.add('resource-'+resource_field_counter);
+
+				let resource_select_elm = document.createElement('select');
+				resource_select_elm.name = 'resource-'+resource_field_counter;
+				resource_select_elm.classList.add('select-resource');
+				resource_select_elm.setAttribute('aria-label', 'Select Resource');
+				resource_select_elm.setAttribute('required', '');
+				if(resource_change_fn != undefined) {
+					resource_select_elm.addEventListener('change', resource_change_fn);
+				}
+
+				// Start resource option
+				let resource_start_option_elm = document.createElement('option');
+				resource_start_option_elm.setAttribute('selected', '');
+				resource_start_option_elm.setAttribute('disabled', '');
+				resource_start_option_elm.setAttribute('value', '');
+				resource_start_option_elm.innerText = "Select Resource";
+				resource_select_elm.appendChild(resource_start_option_elm);
+
+				// Actual resource options
+				let materials = Object.values(parsed_gamedata.materials);
+				materials.sort((a, b) => {
+					let type_comp = a.type - b.type;
+					if (type_comp !== 0) return type_comp;
+					// return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+					return a.tier - b.tier;
+				});
+				for(let i = 0; i < materials.length; i++) {
+					let material = materials[i];
+					let resource_option_elm = document.createElement('option');
+					resource_option_elm.setAttribute('value', material.id);
+					resource_option_elm.setAttribute('tooltip', material.description);
+					resource_option_elm.innerText = material.name;
+					resource_select_elm.appendChild(resource_option_elm);
+				}
+
+				fieldset_elm.appendChild(resource_select_elm);
+
+				let resource_min_input_elm = document.createElement('input');
+				resource_min_input_elm.name = 'resource-'+resource_field_counter+'-min';
+				resource_min_input_elm.type = 'number';
+				resource_min_input_elm.placeholder = 'Minimum percentage';
+				resource_min_input_elm.setAttribute('min', '0');
+				resource_min_input_elm.setAttribute('step', '1');
+				fieldset_elm.appendChild(resource_min_input_elm);
+
+				let delete_button_elm = document.createElement('button');
+				delete_button_elm.classList.add('delete-btn');
+				delete_button_elm.classList.add('pico-background-red-500');
+				if (disable_delete) {
+					delete_button_elm.setAttribute('disabled', '');
+				}
+				delete_button_elm.addEventListener('click', () => {
+					// Get form before field is removed
+					let form = resource_select_elm.form;
+
+					// Remove actual fieldset after
+					fieldset_elm.remove();
+
+					// Make sure form is updated
+					form.dispatchEvent(new Event('change', { bubbles: true }));
+				});
+				let delete_button_icon_elm = document.createElement('span');
+				delete_button_icon_elm.classList.add('material-symbols-outlined');
+				delete_button_icon_elm.innerText = 'delete';
+				delete_button_elm.appendChild(delete_button_icon_elm);
+				fieldset_elm.appendChild(delete_button_elm);
+
+				// Update counter for unique ID
+				resource_field_counter++;
+
+				return fieldset_elm;
+			}
+
+			function find_planets(find_planet_options) {
+				let distance_from_planet = parsed_gamedata.planets[find_planet_options.distance_from_point];
+				let max_distance_to_planet = ly_distance_to_xy(parseFloat(find_planet_options.distance_max_to_point));
+				let show_tiers = find_planet_options.show_tiers;
+				for(let i = 0; i < show_tiers.length; i++) {
+					show_tiers[i] = parseInt(show_tiers[i]);
+				}
+				let fertility_min = parseInt(find_planet_options.fertility_min);
+				let resources_required = find_planet_options.resources_required;
+				for(let i = 0; i < resources_required.length; i++) {
+					resources_required[i].id = parseInt(resources_required[i].id);
+					resources_required[i].min = parseInt(resources_required[i].min);
+				}
+				
+				let qualifying_planets = [];
+				let planets = Object.values(parsed_gamedata.planets);
+				for(let i = 0; i < planets.length; i++) {
+					let planet = planets[i];
+
+					// Order of checks is based on speed of the check
+					// Check for fertility
+					if(planet.fert < fertility_min) continue;
+
+					// Check for tier
+					if(!show_tiers.includes(planet.tier)) continue;
+
+					// Check for distance
+					let distance_to_planet = getDistance(distance_from_planet, planet);
+					if(max_distance_to_planet < distance_to_planet) continue;
+
+					// Check for resources
+					let resource_qualifies = resources_required.length == 0;
+					for(let j = 0; j < resources_required.length; j++) {
+						let resource_required = resources_required[j];
+						resource_qualifies = false;
+						for(let k = 0; k < planet.mats.length; k++) {
+							let planet_mat = planet.mats[k];
+							if(planet_mat.id != resource_required.id) continue;
+							if(planet_mat.ab < resource_required) break;
+							resource_qualifies = true;
+							break;
+						}
+						if(!resource_qualifies) break;
+					}
+					if(!resource_qualifies) continue;
+
+					qualifying_planets.push(planet);
+				}
+
+				return qualifying_planets;
+			}
+
+			function parse_planet_finder_form_options(planet_finder_options_elm, center_planet, maximum_distance) {
+				let form_data = new FormData(planet_finder_options_elm);
+
+				let distance_from_point = form_data.get('distance-from-point');
+				if(distance_from_point == null || distance_from_point == undefined) distance_from_point = center_planet;
+
+				let distance_max_to_point = form_data.get('distance-max-to-point');
+				if(distance_max_to_point == null || distance_max_to_point == undefined) distance_max_to_point = maximum_distance;
+
+				let show_tiers = form_data.getAll('show-tiers');
+				if(show_tiers == null || show_tiers == undefined) show_tiers = [];
+				
+				let fertility_min = form_data.get('fertility-min');
+				if(fertility_min == null || fertility_min == undefined) fertility_min = 0;
+
+				// Find all resource specific values and put them together
+				let resource_key_regex = /resource-(?<id>[0-9]+)(?<min>-min)?/g;
+				let resources_in_form_data = {};
+				for(let form_data_key of form_data.keys()) {
+					let key_match = resource_key_regex.exec(form_data_key);
+					if(key_match == null) continue;
+					let id = key_match.groups.id;
+					if(resources_in_form_data[id] == undefined) resources_in_form_data[id] = {};
+					if(key_match.groups.min != undefined) {
+						resources_in_form_data[id].min = form_data.get(form_data_key);
+					} else {
+						resources_in_form_data[id].resource_id = form_data.get(form_data_key);
+					}
+				}
+
+				// Filter out any resources without a resource_id and set min if not set already to 0
+				let resources_required = [];
+				let resources_values = Object.values(resources_in_form_data);
+				for(let i = 0; i < resources_values.length; i++) {
+					let resources_value = resources_values[i];
+					if(resources_value.resource_id == undefined) continue;
+					let min = resources_value.min;
+					if(min == undefined) min = 0;
+					resources_required.push({
+						id: resources_value.resource_id,
+						min: min
+					});
+				}
+
+				// The options for finding the planets
+				let find_planet_options = {
+					distance_from_point: distance_from_point,
+					distance_max_to_point: distance_max_to_point,
+					show_tiers: show_tiers,
+					resources_required: resources_required,
+					fertility_min: fertility_min
+				};
+
+				return find_planet_options;
+			}
+
+			function create_planet_cards(planets=[], use_center_planet=center_planet) {
+				let ordered_planets = get_planets_in_order_of_distance(parsed_gamedata.planets[use_center_planet], planets);
+
+				let planets_list_elm = document.querySelector('article .planets-list');
+				planets_list_elm.innerHTML = '';
+				for(let i = 0; i < ordered_planets.length; i++) {
+					let ordered_planet = ordered_planets[i];
+					let planet = parsed_gamedata.planets[ordered_planet.sId + "-" + ordered_planet.id];
+
+					let planet_article_elm = document.createElement('article');
+
+					let planet_header_elm = document.createElement('header');
+					planet_header_elm.innerText = planet.name;
+					planet_article_elm.appendChild(planet_header_elm);
+
+					let planet_table_elm = document.createElement('table');
+
+					// Tier and Distance table thead elements
+					{
+						let planet_thead_elm = document.createElement('thead');
+	
+						let planet_thead_tr_elm = document.createElement('tr');
+	
+						let planet_thead_th_tier_elm = document.createElement('th');
+						planet_thead_th_tier_elm.setAttribute('scope', 'col');
+						planet_thead_th_tier_elm.innerText = 'Tier';
+						planet_thead_tr_elm.appendChild(planet_thead_th_tier_elm);
+	
+						let planet_thead_th_distance_elm = document.createElement('th');
+						planet_thead_th_distance_elm.setAttribute('scope', 'col');
+						planet_thead_th_distance_elm.innerText = 'Distance';
+						planet_thead_tr_elm.appendChild(planet_thead_th_distance_elm);
+	
+						planet_thead_elm.appendChild(planet_thead_tr_elm);
+						planet_table_elm.appendChild(planet_thead_elm);
+					}
+					// Tier and Distance table tbody elements
+					{
+						let planet_tbody_elm = document.createElement('tbody');
+
+						let planet_tbody_tr_elm = document.createElement('tr');
+
+						let planet_tbody_th_tier_elm = document.createElement('th');
+						planet_tbody_th_tier_elm.setAttribute('scope', 'row');
+						planet_tbody_th_tier_elm.innerText = planet.tier;
+						planet_tbody_tr_elm.appendChild(planet_tbody_th_tier_elm);
+
+						let planet_tbody_td_distance_elm = document.createElement('td');
+						planet_tbody_td_distance_elm.innerText = xy_distance_to_ly(ordered_planet.distance) + "ly";
+						planet_tbody_tr_elm.appendChild(planet_tbody_td_distance_elm);
+	
+						planet_tbody_elm.appendChild(planet_tbody_tr_elm);
+						planet_table_elm.appendChild(planet_tbody_elm);
+					}
+					// Resource and Percentage table thead elements
+					{
+						let planet_thead_elm = document.createElement('thead');
+	
+						let planet_thead_tr_elm = document.createElement('tr');
+	
+						let planet_thead_th_resource_elm = document.createElement('th');
+						planet_thead_th_resource_elm.setAttribute('scope', 'col');
+						planet_thead_th_resource_elm.innerText = 'Resource';
+						planet_thead_tr_elm.appendChild(planet_thead_th_resource_elm);
+	
+						let planet_thead_th_percentage_elm = document.createElement('th');
+						planet_thead_th_percentage_elm.setAttribute('scope', 'col');
+						planet_thead_th_percentage_elm.innerText = 'Percentage';
+						planet_thead_tr_elm.appendChild(planet_thead_th_percentage_elm);
+	
+						planet_thead_elm.appendChild(planet_thead_tr_elm);
+						planet_table_elm.appendChild(planet_thead_elm);
+					}
+					// Resource and Percentage table tbody elements
+					{
+						let planet_tbody_elm = document.createElement('tbody');
+
+						// Add fertility row
+						if(planet.fert > 0) {
+							let planet_tbody_tr_fert_elm = document.createElement('tr');
+
+							let planet_tbody_th_fert_elm = document.createElement('th');
+							planet_tbody_th_fert_elm.setAttribute('scope', 'row');
+							planet_tbody_th_fert_elm.innerText = "Fertility";
+							planet_tbody_tr_fert_elm.appendChild(planet_tbody_th_fert_elm);
+
+							let planet_tbody_td_fert_elm = document.createElement('td');
+							planet_tbody_td_fert_elm.innerText = planet.fert+"%";
+							planet_tbody_tr_fert_elm.appendChild(planet_tbody_td_fert_elm);
+
+							planet_tbody_elm.appendChild(planet_tbody_tr_fert_elm);
+						}
+
+						for(let j = 0; j < planet.mats.length; j++) {
+							let planet_mat = planet.mats[j];
+							let material = parsed_gamedata.materials[planet_mat.id];
+
+							let planet_tbody_tr_mat_elm = document.createElement('tr');
+
+							let planet_tbody_th_mat_elm = document.createElement('th');
+							planet_tbody_th_mat_elm.setAttribute('scope', 'row');
+							planet_tbody_th_mat_elm.setAttribute('tooltip', material.description);
+							planet_tbody_th_mat_elm.innerText = material.name;
+							planet_tbody_tr_mat_elm.appendChild(planet_tbody_th_mat_elm);
+
+							let planet_tbody_td_mat_elm = document.createElement('td');
+							planet_tbody_td_mat_elm.innerText = planet_mat.ab+"%";
+							planet_tbody_tr_mat_elm.appendChild(planet_tbody_td_mat_elm);
+
+							planet_tbody_elm.appendChild(planet_tbody_tr_mat_elm);
+						}
+
+						planet_table_elm.appendChild(planet_tbody_elm);
+					}
+
+					planet_article_elm.appendChild(planet_table_elm);
+
+					planets_list_elm.appendChild(planet_article_elm);
+				}
+			}
+
+			function update_planet_cards(planet_finder_options_elm, center_planet, maximum_distance) {
+				let planet_finder_options = parse_planet_finder_form_options(planet_finder_options_elm, center_planet, maximum_distance);
+				let found_planets = find_planets(planet_finder_options);
+
+				// Update showing planets
+				let total_found_planets = found_planets.length;
+				let value_showing_planets_elms = document.querySelectorAll('.value-showing-planets');
+				for(let i = 0; i < value_showing_planets_elms.length; i++) {
+					let value_showing_planets_elm = value_showing_planets_elms[i];
+					value_showing_planets_elm.innerText = total_found_planets;
+				}
+
+				create_planet_cards(found_planets, planet_finder_options.distance_from_point)
+			}
+
+			async function intialize_planet_finder() {
+				await parse_gamedata();
+
+				let planet_finder_options_elm = document.querySelector('.planet-finder-options');
+				let total_planets = Object.keys(parsed_gamedata.planets).length - 1; // - 1 for Exchange Station
+				let ordered_planets = get_planets_in_order_of_distance(parsed_gamedata.planets[center_planet]);
+				let ordered_systems = get_systems_in_order_of_distance(parsed_gamedata.systems[center_system]);
+				// let minimum_distance = ordered_planets[1].distance;
+				let maximum_distance = ordered_planets[ordered_planets.length-1].distance;
+				// let minimum_distance_ly = xy_distance_to_ly(minimum_distance);
+				let maximum_distance_ly = xy_distance_to_ly(maximum_distance);
+
+				// Update max distance field
+				let distance_max_to_points_elms = planet_finder_options_elm.querySelectorAll('input[name="distance-max-to-point"]');
+				for(let i = 0; i < distance_max_to_points_elms.length; i++) {
+					let distance_max_to_points_elm = distance_max_to_points_elms[i];
+					// distance_max_to_points_elm.setAttribute("min", minimum_distance_ly); // This disallows planet that is measured from
+					distance_max_to_points_elm.setAttribute("max", maximum_distance_ly);
+					distance_max_to_points_elm.value = maximum_distance_ly;
+				}
+
+				// Update planets 
+				let planet_selection_elms = planet_finder_options_elm.querySelectorAll('select.planet-selection');
+				for(let i = 0; i < planet_selection_elms.length; i++) {
+					let planet_selection_elm = planet_selection_elms[i];
+
+					for(let j = 0; j < ordered_systems.length; j++) {
+						let ordered_system = ordered_systems[j];
+						let system = parsed_gamedata.systems[ordered_system.id];
+						if(system.planets == null || system.planets.length == 0) continue;
+
+						let system_option_elm = document.createElement('option');
+						system_option_elm.setAttribute('disabled', '')
+						system_option_elm.innerText = system.name;
+						planet_selection_elm.appendChild(system_option_elm);
+
+						// Order system planets based on name, this makes exchange station pop up above Reverie
+						let ordered_system_planets = JSON.parse(JSON.stringify(system.planets));
+						ordered_system_planets.sort((a, b) => {
+							return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+						});
+						for(let k = 0; k < ordered_system_planets.length; k++) {
+							let ordered_system_planet = ordered_system_planets[k];
+							let planet_id = ordered_system_planet.sId + "-" + ordered_system_planet.id
+							let planet = parsed_gamedata.planets[planet_id];
+							let planet_option_elm = document.createElement('option');
+							planet_option_elm.value = planet_id;
+							planet_option_elm.innerText = planet.name;
+							if(planet.tier == 0) {
+								planet_option_elm.setAttribute('selected', '')
+							}
+							planet_selection_elm.appendChild(planet_option_elm);
+						}
+					}
+				}
+
+				// Update tiers field
+				let tiers_selection_elms = planet_finder_options_elm.querySelectorAll('select[name="show-tiers"]');
+				for(let i = 0; i < tiers_selection_elms.length; i++) {
+					let tiers_selection_elm = tiers_selection_elms[i];
+					for(let j = 0; j < parsed_gamedata.tiers.length; j++) {
+						let tier = parsed_gamedata.tiers[j];
+
+						let option_elm = document.createElement("option");
+						option_elm.setAttribute("selected", '');
+						option_elm.value = tier;
+						option_elm.innerText = 'Tier '+tier;
+						tiers_selection_elm.appendChild(option_elm);
+					}
+				}
+
+				// Update fertility field
+				let fertility_min_elms = planet_finder_options_elm.querySelectorAll('input[name="fertility-min"]');
+				for(let i = 0; i < fertility_min_elms.length; i++) {
+					let fertility_min_elm = fertility_min_elms[i];
+					fertility_min_elm.setAttribute("max", parsed_gamedata.max_fertility);
+				}
+
+				// Update initial resource element
+				let resources_elms = planet_finder_options_elm.querySelectorAll('.resources');
+				for(let i = 0; i < resources_elms.length; i++) {
+					let resources_elm = resources_elms[i];
+					let resource_change_fn = (e) => {
+						let select_resource_elms = resources_elm.querySelectorAll('fieldset select.select-resource')
+						if(select_resource_elms[select_resource_elms.length-1].value != '') {
+							resources_elm.appendChild(create_resource_field(resource_change_fn))
+						}
+
+						let delete_button_elms = resources_elm.querySelectorAll('fieldset .delete-btn')
+						for(let j = 0; j < delete_button_elms.length; j++) {
+							let delete_button_elm = delete_button_elms[j];
+							if(j != delete_button_elms.length - 1) {
+								delete_button_elm.removeAttribute('disabled')
+							} else {
+								delete_button_elm.setAttribute('disabled', '')
+							}
+						}
+					};
+					resources_elm.appendChild(create_resource_field(resource_change_fn))
+				}
+
+				// Update total planets value
+				let value_total_planets_elms = document.querySelectorAll('.value-total-planets');
+				for(let i = 0; i < value_total_planets_elms.length; i++) {
+					let value_total_planets_elm = value_total_planets_elms[i];
+					value_total_planets_elm.innerText = total_planets;
+				}
+
+				planet_finder_options_elm.addEventListener('change', () => {
+					update_planet_cards(planet_finder_options_elm, center_planet, maximum_distance);
+				});
+				update_planet_cards(planet_finder_options_elm, center_planet, maximum_distance);
+			}
+
+			function initialize_range_field(range_elm) {
+				let name = range_elm.name;
+				if (name != undefined) {
+					let update_value_elms = document.querySelectorAll(".range-value-"+name);
+					// The function that updates the element
+					let fn_update_value_elms = (new_value) => {
+						for(let i = 0; i < update_value_elms.length; i++) {
+							update_value_elms[i].innerText = new_value;
+						}
+					}
+
+					// Update value on any input
+					range_elm.addEventListener('input', (e) => {
+						fn_update_value_elms(range_elm.value);
+					});
+					// Update current value
+					fn_update_value_elms(range_elm.value);
+				}
+			}
+
+			function initialize_range_fields() {
+				let range_inputs = document.querySelectorAll('input[type="range"]');
+				for(let i = 0; i < range_inputs.length; i++) {
+					initialize_range_field(range_inputs[i]);
+				}
+			}
+
+			document.addEventListener("DOMContentLoaded", async (e) => {
+				await intialize_planet_finder();
+				initialize_range_fields();
+			})
+		</script>
+	</body>
+</html>
