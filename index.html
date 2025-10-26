@@ -125,7 +125,7 @@
 
 			async function get_json(json) {
 				let json_folder = "galactic_tycoon_api_results";
-				let url = '/'+json_folder+'/'+json+'.json';
+				let url = json_folder+'/'+json+'.json';
 
 				const response = await fetch(url);
 				if(!response.ok) throw new Error(`HTTP error: ${response.status}`);
